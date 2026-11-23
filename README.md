@@ -1,4 +1,4 @@
-# Scalextric (Browser)
+# Slot-Car Racer
 
 A browser-based, Scalextric-inspired slot-car racing game. Drive against multiple bot opponents on a technical track with a proper starting grid and countdown lights.
 
