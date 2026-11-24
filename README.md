@@ -1,46 +1,41 @@
 # Slot-Car Racer
 
-A browser-based, Scalextric-inspired slot-car racing game. Drive against multiple bot opponents on a technical track with a proper starting grid and countdown lights.
+A browser-based slot-car racing game. Race three bots around a technical circuit, with a starting grid, countdown lights and lap timing.
 
-![Project Screenshot](scalextric_picture.png)
+**[▶ Play it in your browser](https://dpeck12.github.io/slot-car-racer/)**
 
-## Features
-- Human vs bots: Race against more than one bot opponent.
-- Technical tracks: Curves and straights with realistic cornering limits.
-- Starting grid: Staged grid boxes, countdown, and false-start penalty.
-- Deterministic simulation: Fixed-step physics with render interpolation.
-- Controls: Keyboard and Gamepad support (with deadzones and smoothing).
-- PWA: Installable and offline-ready via service worker.
+![Four cars racing through the infield hairpin](screenshot.png)
 
-## Quick Start
-- Prereqs: Node.js 18+ and npm.
-- Run the dev server:
+## How to play
+- Hold **↑** or **W** to accelerate; let go to slow down. On a touch screen, press and hold on the track.
+- Take a corner too fast and the car flies out of the slot. It's put back on the track after a two-second delay.
+- Accelerate before the lights go out and you get a two-second penalty.
+- Use the **Bots** menu to switch between Easy, Medium and Hard.
 
-```powershell
-Push-Location "c:\Users\DanPeck\Scalextric-"
-npm.cmd install
-npm.cmd run dev
+## How it works
+- **Track:** built from straight and curved segments (`public/assets/tracks/*.json`) and sampled into a polyline with headings and edges. Track files must form a closed loop: the turns add up to 360° and the end meets the start.
+- **Physics:** fixed 120 Hz timestep with interpolated rendering. Cars accelerate against quadratic drag, and a car de-slots when its sideways acceleration (v²/r) exceeds the grip limit (μg).
+- **Bots:** look 15 m ahead for the tightest corner, aim for a share of its maximum safe speed (set by the difficulty level), and control the throttle with a PID controller.
+- **Rendering:** [PixiJS](https://pixijs.com/). The camera fits the whole circuit to the window.
+
+## Run it locally
+Requires Node.js 18 or later.
+
+```bash
+npm install
+npm run dev
 ```
 
-Open http://localhost:5173/ and use Arrow Up/W to throttle.
+`npm run build` creates a static build in `dist/`. Each push to `main` deploys it to GitHub Pages using the workflow in `.github/workflows/deploy.yml`.
 
-## How It Works
-- Physics: Longitudinal acceleration with drag; lateral grip limits based on $\mu g$; de-slot behavior with off-track slide and auto-reslot (marshal delay).
-- AI: Segment-aware corner speed targets + PID throttle; difficulty presets.
-- Track: Sampled polyline with headings; left/right edges; pose interpolation.
-- Rendering: Pixi.js sprites, filled track polygon, grass background; camera scaling to fit track bounds.
-- Race flow: Start menu, stacked red lights during countdown, false-start detection, lap timing, best lap tracking.
+To check that no bot crashes over a few minutes of racing, run:
 
-## Configuration
-- Bots: Adjust `botCount` in [src/main.ts](src/main.ts) to add/remove opponents.
-- Track: Swap between tracks by changing the path used in [src/main.ts](src/main.ts).
-- Difficulty: Use the HUD selector to change all bot difficulty.
+```bash
+npx esbuild scripts/sim.ts --bundle --platform=node --outfile=.sim.cjs && node .sim.cjs Hard 180
+```
 
+## Tech
+TypeScript · Vite · PixiJS
 
-## Tech Stack
-- TypeScript + Vite
-- Pixi.js (WebGL 2D renderer)
-- PWA (manifest + service worker)
-
-## License
-This project is for personal use and demonstration. Assets used should be licensed appropriately.
+## Licence
+[MIT](LICENSE)

@@ -15,6 +15,15 @@ export class Input {
       if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'w') this.target = 0;
     });
 
+    // Touch / mouse: press and hold on the track (the canvas) to accelerate.
+    window.addEventListener('pointerdown', (e) => {
+      if (e.target instanceof HTMLCanvasElement) this.target = 1;
+    });
+    const release = () => { this.target = 0; };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    window.addEventListener('blur', release);
+
     window.addEventListener('gamepadconnected', (e) => {
       if (this.gamepadIndex === null) this.gamepadIndex = e.gamepad.index;
     });

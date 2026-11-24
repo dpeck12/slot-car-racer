@@ -10,20 +10,26 @@ export class StartUI {
   constructor(onStart: () => void) {
     this.onStart = onStart;
     this.overlay = document.createElement('div');
+    this.overlay.className = 'start-ui';
     this.overlay.style.position = 'absolute';
     this.overlay.style.left = '50%';
-    this.overlay.style.top = '30%';
-    this.overlay.style.transform = 'translateX(-50%)';
+    this.overlay.style.top = '55%';
+    this.overlay.style.transform = 'translate(-50%, -50%)';
     this.overlay.style.textAlign = 'center';
     this.overlay.style.fontFamily = 'Inter, system-ui, sans-serif';
     this.overlay.style.zIndex = '1000';
     document.body.appendChild(this.overlay);
 
     const title = document.createElement('div');
-    title.textContent = 'Scalextric';
+    title.textContent = 'Slot-Car Racer';
     title.style.fontSize = '48px';
     title.style.marginBottom = '16px';
     this.overlay.appendChild(title);
+
+    const howTo = document.createElement('div');
+    howTo.className = 'how-to';
+    howTo.innerHTML = 'Race three bots around the circuit.<br>Hold <kbd>↑</kbd> or <kbd>W</kbd> to accelerate (press and hold on touch screens).<br>Take a corner too fast and you fly off. Jump the start and you get a penalty.';
+    this.overlay.appendChild(howTo);
 
     this.lights = document.createElement('div');
     this.lights.style.display = 'flex';
@@ -61,6 +67,7 @@ export class StartUI {
       this.btn.style.display = 'inline-block';
     } else {
       this.btn.style.display = 'none';
+      (this.overlay.querySelector('.how-to') as HTMLElement).style.display = 'none';
       this.overlay.style.display = 'block'; // Keep lights visible during countdown
     }
 

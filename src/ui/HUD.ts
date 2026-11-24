@@ -8,29 +8,42 @@ function fmtTime(t: number): string {
   return `${m}:${s.toFixed(2).padStart(5, '0')}`;
 }
 
+const CAR_COLOURS = ['#00e6ff', '#ff6e00', '#ff2e63', '#8eff32', '#ffd400', '#bb86fc'];
+
 export class HUD {
-  private el: HTMLDivElement;
+  private panel: HTMLDivElement;
+  private rows: { lap: HTMLSpanElement; current: HTMLSpanElement; best: HTMLSpanElement; status: HTMLSpanElement }[] = [];
   private overlay: HTMLDivElement;
   private difficulty: HTMLSelectElement;
-  private onDifficulty: (name: string) => void;
 
-  constructor(onDifficultyChange: (name: string) => void) {
-    this.onDifficulty = onDifficultyChange;
-    this.el = document.createElement('div');
-    this.el.className = 'hud';
-    this.el.style.zIndex = '900';
-    document.body.appendChild(this.el);
+  constructor(onDifficultyChange: (name: string) => void, carCount: number) {
+    this.panel = document.createElement('div');
+    this.panel.className = 'hud';
 
-    this.overlay = document.createElement('div');
-    this.overlay.style.position = 'absolute';
-    this.overlay.style.left = '50%';
-    this.overlay.style.top = '20%';
-    this.overlay.style.transform = 'translateX(-50%)';
-    this.overlay.style.fontSize = '64px';
-    this.overlay.style.fontFamily = 'Inter, system-ui, sans-serif';
-    this.overlay.style.zIndex = '900';
-    document.body.appendChild(this.overlay);
+    const table = document.createElement('table');
+    const head = table.insertRow();
+    for (const h of ['', 'Laps', 'Current', 'Best', '']) {
+      const th = document.createElement('th');
+      th.textContent = h;
+      head.appendChild(th);
+    }
+    for (let i = 0; i < carCount; i++) {
+      const tr = table.insertRow();
+      const name = tr.insertCell();
+      const swatch = document.createElement('span');
+      swatch.className = 'swatch';
+      swatch.style.background = CAR_COLOURS[i % CAR_COLOURS.length];
+      name.append(swatch, i === 0 ? 'You' : `Bot ${i}`);
+      if (i === 0) tr.className = 'you';
+      const mk = () => { const c = tr.insertCell(); const s = document.createElement('span'); c.appendChild(s); return s; };
+      this.rows.push({ lap: mk(), current: mk(), best: mk(), status: mk() });
+    }
+    this.panel.appendChild(table);
 
+    const controls = document.createElement('div');
+    controls.className = 'hud-controls';
+    const label = document.createElement('label');
+    label.textContent = 'Bots: ';
     this.difficulty = document.createElement('select');
     for (const name of ['Easy', 'Medium', 'Hard']) {
       const opt = document.createElement('option');
@@ -38,43 +51,34 @@ export class HUD {
       this.difficulty.appendChild(opt);
     }
     this.difficulty.value = 'Medium';
-    this.difficulty.addEventListener('change', () => {
-      this.onDifficulty(this.difficulty.value);
-    });
-    this.el.appendChild(document.createTextNode('Difficulty: '));
-    this.el.appendChild(this.difficulty);
+    this.difficulty.addEventListener('change', () => onDifficultyChange(this.difficulty.value));
+    label.appendChild(this.difficulty);
+    const hint = document.createElement('span');
+    hint.className = 'hint';
+    hint.textContent = 'Hold ↑ / W (or press and hold on touch) to accelerate';
+    controls.append(label, hint);
+    this.panel.appendChild(controls);
+    document.body.appendChild(this.panel);
+
+    this.overlay = document.createElement('div');
+    this.overlay.className = 'race-message';
+    document.body.appendChild(this.overlay);
   }
 
   update(race: RaceManager, cars: CarState[]) {
-    const rows = cars.map((c, i) => {
-      const who = i === 0 ? 'You' : `Bot ${i}`;
-      const best = fmtTime(race.bestLap[i]);
-      return `<div>${who} Lap: ${race.laps[i]} | Best: ${best} | v: ${c.v.toFixed(2)} m/s ${c.deslotted ? '(DESLOTTED)' : ''}</div>`;
-    }).join('');
-    this.el.innerHTML = rows;
-    // Re-append difficulty selector after innerHTML reset
-    this.el.appendChild(document.createTextNode('Difficulty: '));
-    this.el.appendChild(this.difficulty);
+    cars.forEach((c, i) => {
+      const r = this.rows[i];
+      r.lap.textContent = String(race.laps[i]);
+      r.current.textContent = fmtTime(race.currentLap[i]);
+      r.best.textContent = fmtTime(race.bestLap[i]);
+      r.status.textContent = c.deslotted ? 'OFF!' : '';
+    });
 
-    // Start lights overlay
-    if (race.status === 'countdown') {
-      const secs = race.getCountdownSeconds();
-      this.overlay.textContent = secs > 0 ? String(secs) : '';
-      this.overlay.style.color = '#ffd400';
-    } else {
-      this.overlay.textContent = '';
-    }
-    if (race.isFalseStart() && race.status === 'countdown') {
-      this.overlay.textContent = 'FALSE START!';
-      this.overlay.style.color = '#ff4d4f';
-    }
-    if (race.status === 'running' && race.isFalseStart()) {
-      if (cars[0]?.v < 0.1) {
-        this.overlay.textContent = 'PENALTY';
-        this.overlay.style.color = '#ff4d4f';
-      } else {
-        this.overlay.textContent = '';
-      }
-    }
+    // Race messages (the countdown itself is shown by the start lights)
+    let msg = '';
+    if (race.isFalseStart() && race.status === 'countdown') msg = 'FALSE START!';
+    if (race.status === 'running' && race.isFalseStart() && cars[0]?.v < 0.1) msg = 'PENALTY';
+    if (race.status === 'running' && cars[0]?.deslotted) msg = 'OFF THE TRACK!';
+    this.overlay.textContent = msg;
   }
 }

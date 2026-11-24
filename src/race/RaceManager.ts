@@ -11,15 +11,19 @@ export class RaceManager {
 
   laps: number[] = [];
   bestLap: number[] = [];
+  /** Time on the current lap; NaN until the car first crosses the start/finish line. */
+  currentLap: number[] = [];
   private elapsedLap: number[] = [];
-  private lastS: number[] = [];
+  /** Which lap each car is on, as floor(s / trackLength). Cars on the grid start at -1. */
+  private lapIndex: (number | null)[] = [];
 
   constructor(totalTrackMeters: number, carCount: number) {
     this.totalLength = totalTrackMeters;
     this.laps = new Array(carCount).fill(0);
     this.bestLap = new Array(carCount).fill(Infinity);
+    this.currentLap = new Array(carCount).fill(NaN);
     this.elapsedLap = new Array(carCount).fill(0);
-    this.lastS = new Array(carCount).fill(0);
+    this.lapIndex = new Array(carCount).fill(null);
   }
 
   startCountdown(seconds: number) {
@@ -54,22 +58,24 @@ export class RaceManager {
       this.penaltyHuman = Math.max(0, this.penaltyHuman - dt);
     }
 
+    // sMeters grows continuously, so the lap a car is on is floor(s / L).
+    // The first crossing of the line (from the grid) starts the clock; each
+    // crossing after that completes a lap.
     for (let i = 0; i < states.length; i++) {
+      const idx = Math.floor(states[i].sMeters / this.totalLength);
+      const prevIdx = this.lapIndex[i];
+      this.lapIndex[i] = idx;
+      if (prevIdx === null) continue; // first running frame: just record where the car is
       this.elapsedLap[i] += dt;
-      const wrap = this.didWrap(this.lastS[i], states[i].sMeters);
-      if (wrap) {
-        this.laps[i]++;
-        if (this.elapsedLap[i] < this.bestLap[i]) this.bestLap[i] = this.elapsedLap[i];
+      if (idx > prevIdx) {
+        if (idx >= 1) {
+          this.laps[i]++;
+          if (this.elapsedLap[i] < this.bestLap[i]) this.bestLap[i] = this.elapsedLap[i];
+        }
         this.elapsedLap[i] = 0;
       }
-      this.lastS[i] = states[i].sMeters;
+      this.currentLap[i] = idx >= 0 ? this.elapsedLap[i] : NaN;
     }
-  }
-
-  private didWrap(prev: number, curr: number): boolean {
-    const p = prev % this.totalLength;
-    const c = curr % this.totalLength;
-    return c < p && (prev - curr) < this.totalLength; // crossed start/finish
   }
 
   getCountdownSeconds(): number {

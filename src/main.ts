@@ -11,7 +11,7 @@ import { StartUI } from './ui/StartUI';
 const appContainer = document.getElementById('app')!;
 
 const app = new PIXI.Application({
-  backgroundColor: 0x121212,
+  backgroundColor: 0x1f6f2f, // grass
   resizeTo: appContainer,
   antialias: true,
   resolution: Math.max(1, Math.floor(window.devicePixelRatio || 1)),
@@ -23,7 +23,8 @@ appContainer.appendChild(app.view as HTMLCanvasElement);
 const METERS_PER_PIXEL = 0.02; // 50 px = 1 m
 
 async function bootstrap() {
-  const track = await Track.load('/assets/tracks/complex.json', METERS_PER_PIXEL);
+  // BASE_URL keeps asset paths working when the game is served from a sub-path (GitHub Pages).
+  const track = await Track.load(`${import.meta.env.BASE_URL}assets/tracks/complex.json`, METERS_PER_PIXEL);
 
   const physics = new Physics(track, METERS_PER_PIXEL);
   const input = new Input();
@@ -32,14 +33,12 @@ async function bootstrap() {
   physics.initCars(carCount);
   const bots: Bot[] = new Array(botCount).fill(0).map(() => new Bot(track));
   const race = new RaceManager(track.totalLengthMeters, carCount);
-  const hud = new HUD((name) => bots.forEach(b => b.setDifficulty(name)));
+  const hud = new HUD((name) => bots.forEach(b => b.setDifficulty(name)), carCount);
   const startUI = new StartUI(() => race.startCountdown(3));
 
   // Graphics layers
-  const gBg = new PIXI.Graphics();
   const gTrack = new PIXI.Graphics();
   const gEdges = new PIXI.Graphics();
-  app.stage.addChild(gBg);
   app.stage.addChild(gTrack);
   app.stage.addChild(gEdges);
   // Car sprites
@@ -61,97 +60,91 @@ async function bootstrap() {
     return sp;
   });
 
-  // Background grass
   const bounds = track.boundsPx;
-  const margin = 100;
-  gBg.beginFill(0x1f6f2f);
-  gBg.drawRect(bounds.x - margin, bounds.y - margin, bounds.width + margin * 2, bounds.height + margin * 2);
-  gBg.endFill();
 
-  // Track fill using left and right edges
-  const polygon: PIXI.IPointData[] = [];
-  for (const p of track.leftEdgePx) polygon.push(p);
-  for (let i = track.rightEdgePx.length - 1; i >= 0; i--) polygon.push(track.rightEdgePx[i]);
-  gTrack.beginFill(0x2b2b2b);
-  gTrack.drawPolygon(polygon);
-  gTrack.endFill();
+  // Track surface: a wide stroke along the centreline. Unlike a filled polygon
+  // this can't produce stray triangles, and it handles tight corners cleanly.
+  const drawLoop = (g: PIXI.Graphics, pts: { x: number; y: number }[]) => {
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.closePath();
+  };
+  gTrack.lineStyle({ width: track.laneWidthPx, color: 0x2b2b2b, join: PIXI.LINE_JOIN.ROUND, cap: PIXI.LINE_CAP.ROUND });
+  drawLoop(gTrack, track.pointsPx);
+  // The slot the cars run in
+  gTrack.lineStyle({ width: 2, color: 0x111111, join: PIXI.LINE_JOIN.ROUND });
+  drawLoop(gTrack, track.pointsPx);
 
   // Edge lines
   gEdges.lineStyle(2, 0xffffff);
-  const drawPolyline = (pts: {x:number;y:number}[]) => {
-    gEdges.moveTo(pts[0].x, pts[0].y);
-    for (let i = 1; i < pts.length; i++) gEdges.lineTo(pts[i].x, pts[i].y);
-    gEdges.lineTo(pts[0].x, pts[0].y);
-  };
-  drawPolyline(track.leftEdgePx);
-  drawPolyline(track.rightEdgePx);
+  drawLoop(gEdges, track.leftEdgePx);
+  drawLoop(gEdges, track.rightEdgePx);
 
-  // Starting grid rendering near start/finish
-  const startPose = track.samplePose(0);
-  const gridCells = 2; // columns per row
-  const rows = Math.ceil(carCount / gridCells);
-  const rowSpacingMeters = 3; // distance between rows
-  const colOffsetPx = track.laneWidthPx * 0.35;
-  const nx = -Math.sin(startPose.headingRad);
-  const ny = Math.cos(startPose.headingRad);
-  const tx = Math.cos(startPose.headingRad);
-  const ty = Math.sin(startPose.headingRad);
-  gEdges.lineStyle(3, 0xffffff, 0.8);
-  for (let r = 0; r < rows; r++) {
-    const sBack = - (r * rowSpacingMeters);
-    const p = track.samplePose(sBack);
-    // draw grid rectangles
-    const cellLength = 40; // px
-    const cellWidth = track.laneWidthPx * 0.7; // px
-    for (let c = 0; c < gridCells; c++) {
-      const side = c === 0 ? -1 : 1;
-      const cx = p.x + nx * (colOffsetPx * side);
-      const cy = p.y + ny * (colOffsetPx * side);
-      // rectangle oriented by heading
-      const x0 = cx - tx * (cellLength/2) - nx * (cellWidth/2);
-      const y0 = cy - ty * (cellLength/2) - ny * (cellWidth/2);
-      const x1 = cx + tx * (cellLength/2) - nx * (cellWidth/2);
-      const y1 = cy + ty * (cellLength/2) - ny * (cellWidth/2);
-      const x2 = cx + tx * (cellLength/2) + nx * (cellWidth/2);
-      const y2 = cy + ty * (cellLength/2) + ny * (cellWidth/2);
-      const x3 = cx - tx * (cellLength/2) + nx * (cellWidth/2);
-      const y3 = cy - ty * (cellLength/2) + ny * (cellWidth/2);
-      gEdges.moveTo(x0, y0);
-      gEdges.lineTo(x1, y1);
-      gEdges.lineTo(x2, y2);
-      gEdges.lineTo(x3, y3);
-      gEdges.lineTo(x0, y0);
+  // Chequered start/finish line across the track at s = 0
+  {
+    const p = track.samplePose(0);
+    const nx = -Math.sin(p.headingRad), ny = Math.cos(p.headingRad);
+    const tx = Math.cos(p.headingRad), ty = Math.sin(p.headingRad);
+    const squares = 8, size = track.laneWidthPx / squares;
+    for (let row = 0; row < 2; row++) {
+      for (let k = 0; k < squares; k++) {
+        gEdges.lineStyle(0);
+        gEdges.beginFill((k + row) % 2 === 0 ? 0xffffff : 0x111111);
+        const off = -track.laneWidthPx / 2 + k * size;
+        const along = (row - 1) * size;
+        const cx = p.x + nx * off + tx * along, cy = p.y + ny * off + ty * along;
+        gEdges.drawPolygon([
+          cx, cy,
+          cx + nx * size, cy + ny * size,
+          cx + nx * size + tx * size, cy + ny * size + ty * size,
+          cx + tx * size, cy + ty * size
+        ]);
+        gEdges.endFill();
+      }
     }
   }
 
-  // Center camera on track bounding box
-  const marginCam = 40;
-  const screenW = app.renderer.screen.width;
-  const screenH = app.renderer.screen.height;
-  const scaleX = (screenW - marginCam * 2) / bounds.width;
-  const scaleY = (screenH - marginCam * 2) / bounds.height;
-  const scale = Math.min(scaleX, scaleY);
-  app.stage.scale.set(scale);
-  app.stage.position.set(
-    screenW / 2 - (bounds.x + bounds.width / 2) * scale,
-    screenH / 2 - (bounds.y + bounds.height / 2) * scale
-  );
+  // Starting grid: one box per car in single file behind the line (slot cars share
+  // one slot, so side-by-side grid slots would put two cars on the same spot).
+  const gridSpacingMeters = 1.6;
+  const gridS: number[] = new Array(carCount).fill(0).map((_, i) => -(i + 0.5) * gridSpacingMeters);
+  gEdges.lineStyle(2, 0xffffff, 0.8);
+  for (const s of gridS) {
+    const p = track.samplePose(s);
+    const nx = -Math.sin(p.headingRad), ny = Math.cos(p.headingRad);
+    const tx = Math.cos(p.headingRad), ty = Math.sin(p.headingRad);
+    const halfL = 18, halfW = track.laneWidthPx * 0.35;
+    const corner = (a: number, b: number) => [p.x + tx * a + nx * b, p.y + ty * a + ny * b] as const;
+    const pts = [corner(-halfL, -halfW), corner(halfL, -halfW), corner(halfL, halfW), corner(-halfL, halfW)];
+    gEdges.moveTo(pts[0][0], pts[0][1]);
+    for (const q of pts.slice(1)) gEdges.lineTo(q[0], q[1]);
+    gEdges.lineTo(pts[0][0], pts[0][1]);
+  }
 
-  // Place cars on starting grid
-  const gridPositionsSMeters: number[] = [];
-  for (let i = 0; i < carCount; i++) {
-    const r = Math.floor(i / gridCells);
-    const c = i % gridCells;
-    const sBack = - (r * rowSpacingMeters);
-    const side = c === 0 ? -1 : 1;
-    // base pose at sBack, offset sideways by colOffset
-    const p = track.samplePose(sBack);
-    const sNear = track.findNearestSMeters(
-      p.x - Math.sin(p.headingRad) * (colOffsetPx * side),
-      p.y + Math.cos(p.headingRad) * (colOffsetPx * side)
+  // Fit the whole track on screen, leaving room for the HUD panel, and refit on resize.
+  const fitCamera = () => {
+    const marginCam = 40 + track.laneWidthPx;
+    // Keep the track clear of the HUD panel in the top-left corner.
+    const hudBottom = document.querySelector('.hud')?.getBoundingClientRect().bottom ?? 0;
+    const topReserve = Math.min(hudBottom + 8, app.renderer.screen.height * 0.35);
+    const screenW = app.renderer.screen.width;
+    const screenH = app.renderer.screen.height;
+    const scaleX = (screenW - marginCam * 2) / bounds.width;
+    const scaleY = (screenH - topReserve - marginCam * 2) / bounds.height;
+    const scale = Math.max(0.05, Math.min(scaleX, scaleY));
+    app.stage.scale.set(scale);
+    app.stage.position.set(
+      screenW / 2 - (bounds.x + bounds.width / 2) * scale,
+      topReserve + (screenH - topReserve) / 2 - (bounds.y + bounds.height / 2) * scale
     );
-    gridPositionsSMeters.push(sNear);
-    physics.cars[i].sMeters = sNear;
+  };
+  fitCamera();
+  app.renderer.on('resize', fitCamera);
+
+  // Place cars on the grid. Positions are negative (just behind the line) so the
+  // first crossing of the line starts the lap clock instead of counting a lap.
+  for (let i = 0; i < carCount; i++) {
+    physics.cars[i].sMeters = gridS[i];
     physics.cars[i].v = 0;
     physics.cars[i].deslotted = false;
     physics.cars[i].marshalTimer = 0;

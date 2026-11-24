@@ -75,10 +75,17 @@ export class Track {
       }
     }
 
-    // Close loop to start
-    pts.push(data.start);
-    heads.push(deg2rad(data.start.headingDeg));
-    cum.push(sMeters + this.metersPerPixel * stepPx);
+    // A well-formed track ends exactly where it starts, so the last sample is the
+    // start point and the loop is already closed. Only patch the gap if it isn't.
+    const last = pts[pts.length - 1];
+    const gapPx = Math.hypot(last.x - data.start.x, last.y - data.start.y);
+    if (gapPx > 1) {
+      console.warn(`Track "${data.name}" does not close: ends ${gapPx.toFixed(1)}px from the start`);
+      sMeters += gapPx * this.metersPerPixel;
+      pts.push({ x: data.start.x, y: data.start.y });
+      heads.push(deg2rad(data.start.headingDeg));
+      cum.push(sMeters);
+    }
 
     this.pointsPx = pts;
     this.headingsRad = heads;
@@ -117,8 +124,10 @@ export class Track {
     // Wrap around and linearly interpolate between samples
     const sWrapped = ((sMeters % this.totalLengthMeters) + this.totalLengthMeters) % this.totalLengthMeters;
     const idx = this.findIndexForMeters(sWrapped);
-    const prev = Math.max(0, idx - 1);
-    const s0 = this.cumulativeMeters[prev];
+    // The last sample is the start point, so before the first sample we
+    // interpolate from it (at distance 0) instead of clamping.
+    const prev = idx > 0 ? idx - 1 : this.pointsPx.length - 1;
+    const s0 = idx > 0 ? this.cumulativeMeters[prev] : 0;
     const s1 = this.cumulativeMeters[idx];
     const t = s1 > s0 ? (sWrapped - s0) / (s1 - s0) : 0;
     const p0 = this.pointsPx[prev];
@@ -129,8 +138,10 @@ export class Track {
   samplePose(sMeters: number): { x: number; y: number; headingRad: number } {
     const sWrapped = ((sMeters % this.totalLengthMeters) + this.totalLengthMeters) % this.totalLengthMeters;
     const idx = this.findIndexForMeters(sWrapped);
-    const prev = Math.max(0, idx - 1);
-    const s0 = this.cumulativeMeters[prev];
+    // The last sample is the start point, so before the first sample we
+    // interpolate from it (at distance 0) instead of clamping.
+    const prev = idx > 0 ? idx - 1 : this.pointsPx.length - 1;
+    const s0 = idx > 0 ? this.cumulativeMeters[prev] : 0;
     const s1 = this.cumulativeMeters[idx];
     const t = s1 > s0 ? (sWrapped - s0) / (s1 - s0) : 0;
     const p0 = this.pointsPx[prev];
@@ -142,6 +153,21 @@ export class Track {
     const h1 = this.headingsRad[idx] ?? h0;
     const h = angleLerp(h0, h1, t);
     return { x, y, headingRad: h };
+  }
+
+  /**
+   * Local radius of the centreline (px) at distance s, from three samples either
+   * side. Indices wrap around the loop so the start/finish line reads correctly.
+   * Returns Infinity on straights.
+   */
+  radiusPxAt(sMeters: number): number {
+    const L = this.totalLengthMeters;
+    const idx = this.findIndexForMeters(((sMeters % L) + L) % L);
+    const n = this.pointsPx.length;
+    const p0 = this.pointsPx[(idx - 2 + n) % n];
+    const p1 = this.pointsPx[idx];
+    const p2 = this.pointsPx[(idx + 2) % n];
+    return radiusFromThreePoints(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
   }
 
   private findIndexForMeters(s: number): number {
@@ -174,4 +200,14 @@ function angleLerp(a: number, b: number, t: number): number {
   // Handle edge case when modulo yields negative
   if (delta < -Math.PI) delta += 2 * Math.PI;
   return a + delta * t;
+}
+
+function radiusFromThreePoints(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): number {
+  // Circumradius = |a||b||c| / (4 * area); collinear points give Infinity.
+  const a = Math.hypot(x2 - x1, y2 - y1);
+  const b = Math.hypot(x3 - x2, y3 - y2);
+  const c = Math.hypot(x3 - x1, y3 - y1);
+  const cross = (x2 - x1) * (y3 - y1) - (y2 - y1) * (x3 - x1);
+  if (Math.abs(cross) < 1e-6 || a < 1e-9 || b < 1e-9) return Infinity;
+  return (a * b * c) / (2 * Math.abs(cross));
 }

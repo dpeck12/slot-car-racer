@@ -1,8 +1,8 @@
 {
-  "name": "scalextric-browser",
+  "name": "slot-car-racer",
   "version": "0.1.0",
   "private": true,
-  "description": "A browser-based Scalextric-inspired slot-car racing game with human vs multiple bot opponents, technical tracks, and a starting grid.",
+  "description": "A browser-based slot-car racing game: race bot opponents on a technical circuit.",
   "type": "module",
   "scripts": {
     "dev": "vite",

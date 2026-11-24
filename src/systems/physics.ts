@@ -74,7 +74,10 @@ export class Physics {
       state.marshalTimer -= dt;
       if (state.marshalTimer <= 0) {
         const sNearest = this.track.findNearestSMeters(state.offX ?? 0, state.offY ?? 0);
-        state.sMeters = sNearest;
+        // sMeters keeps counting up across laps, so put the car back on the same lap
+        // it came off rather than resetting it to the first lap.
+        const L = this.track.totalLengthMeters;
+        state.sMeters = sNearest + L * Math.round((state.sMeters - sNearest) / L);
         state.v = 0;
         state.deslotted = false;
         state.offX = undefined;
@@ -91,7 +94,7 @@ export class Physics {
     state.sMeters += state.v * dt;
 
     // Determine local curvature
-    const curvatureR = this.estimateLocalRadius(state.sMeters);
+    const curvatureR = this.track.radiusPxAt(state.sMeters);
 
     if (curvatureR !== Infinity) {
       const rMeters = curvatureR * this.metersPerPixel;
@@ -114,39 +117,4 @@ export class Physics {
       }
     }
   }
-
-  private estimateLocalRadius(sMeters: number): number {
-    // Naive radius estimate by looking at neighboring samples: use discrete curvature via three points
-    const idx = this['findIndex'](sMeters);
-    const pts = this.track.pointsPx;
-    const i0 = Math.max(0, idx - 2);
-    const i1 = idx;
-    const i2 = Math.min(pts.length - 1, idx + 2);
-    const p0 = pts[i0], p1 = pts[i1], p2 = pts[i2];
-    const r = radiusFromThreePoints(p0.x, p0.y, p1.x, p1.y, p2.x, p2.y);
-    return isFinite(r) ? r : Infinity;
-  }
-
-  private findIndex(sMeters: number): number {
-    const sWrapped = ((sMeters % this.track.totalLengthMeters) + this.track.totalLengthMeters) % this.track.totalLengthMeters;
-    // Binary search in track.cumulativeMeters
-    let lo = 0, hi = this.track.cumulativeMeters.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (this.track.cumulativeMeters[mid] < sWrapped) lo = mid + 1; else hi = mid;
-    }
-    return lo;
-  }
-}
-
-function radiusFromThreePoints(x1: number, y1: number, x2: number, y2: number, x3: number, y3: number): number {
-  const a = x1 * (y2 - y3) - y1 * (x2 - x3) + x2 * y3 - x3 * y2;
-  if (Math.abs(a) < 1e-6) return Infinity;
-  const b = (x1 * x1 + y1 * y1) * (y3 - y2) + (x2 * x2 + y2 * y2) * (y1 - y3) + (x3 * x3 + y3 * y3) * (y2 - y1);
-  const c = (x1 * x1 + y1 * y1) * (x2 - x3) + (x2 * x2 + y2 * y2) * (x3 - x1) + (x3 * x3 + y3 * y3) * (x1 - x2);
-  const d = (x1 * x1 + y1 * y1) * (x3 * y2 - x2 * y3) + (x2 * x2 + y2 * y2) * (x1 * y3 - x3 * y1) + (x3 * x3 + y3 * y3) * (x2 * y1 - x1 * y2);
-  const xc = -b / (2 * a);
-  const yc = -c / (2 * a);
-  const r = Math.hypot(x1 - xc, y1 - yc);
-  return r;
 }
